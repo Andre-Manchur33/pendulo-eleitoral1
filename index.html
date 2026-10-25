@@ -69,8 +69,20 @@ body { background: var(--papel); color: var(--tinta); font-family: var(--texto);
 .aviso { margin: 8px 0 0; padding: 10px 14px; border: 1px solid var(--latao); border-radius: 4px; font-size: 13px;
   color: var(--tinta); background: color-mix(in srgb, var(--latao) 10%, var(--papel)); }
 
-/* instrumento */
-.instrumento { margin: 4px 0 0; }
+/* placar ao vivo no topo */
+.topo-placar { margin: 14px 0 0; display: grid; gap: 8px; }
+.topo-placar .progresso-t { font-size: 13px; }
+.topo-placar .progresso-t b { font-size: 15px; }
+.topo-placar .progresso-b { height: 7px; }
+.topo-placar .barra { height: 22px; margin-top: 4px; }
+.topo-placar .nomes { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-family: var(--mono);
+  font-size: 12.5px; color: var(--tinta-2); font-variant-numeric: tabular-nums; }
+.topo-placar .nomes b { font-family: var(--display); font-weight: 500; font-size: clamp(26px, 6vw, 34px); line-height: 1; }
+.topo-placar .nomes .nl b { color: var(--lula); } .topo-placar .nomes .nf b { color: var(--flavio); }
+.topo-placar .votos { display: flex; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--tinta-3);
+  font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.topo-placar .espera { font-size: 13px; color: var(--tinta-3); font-style: italic; }
+.instrumento { margin: 10px 0 0; }
 #pendulo { display: block; width: 100%; height: auto; overflow: visible; }
 .esc-arco { fill: none; stroke: var(--tinta-3); stroke-width: 1; }
 .esc-tick { stroke: var(--tinta-3); stroke-width: 1; }
@@ -255,6 +267,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   </header>
   <p class="estado" id="estado" aria-live="polite"></p>
   <p class="aviso" id="aviso" hidden></p>
+  <section class="topo-placar" id="placar-topo" aria-live="polite"></section>
 
   <figure class="instrumento">
     <svg id="pendulo" viewBox="0 0 640 404" role="img" aria-labelledby="pendulo-desc">
@@ -285,11 +298,11 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     <div class="trilho">
       <svg id="traco" viewBox="0 0 1000 44" preserveAspectRatio="none" aria-hidden="true"></svg>
       <input type="range" id="altura" min="0" max="100" step="0.01" value="0"
-        aria-label="Altura da apuração, em porcentagem do eleitorado apurado">
+        aria-label="Altura da apuração, em porcentagem das seções apuradas">
       <output class="rotulo-altura" id="rotulo-altura" for="altura"></output>
     </div>
     <button type="button" class="ao-vivo" id="ao-vivo-2" aria-pressed="true"><span class="ponto"></span>Ao vivo</button>
-    <div class="eixo" aria-hidden="true"><span>0%</span><span class="meio">do eleitorado apurado</span><span>100%</span></div>
+    <div class="eixo" aria-hidden="true"><span>0%</span><span class="meio">das seções apuradas</span><span>100%</span></div>
   </section>
 </main>
 
@@ -329,7 +342,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       </select></label>
     </div>
     <div class="rolagem"><table class="dados" id="tab-uf"></table></div>
-    <p class="nota-tab">Apurado: parcela do eleitorado em seções totalizadas. Projeção: resultado final estimado para Flávio. 1º turno: Flávio entre os votos dos dois. Variação: em pontos, na mesma medida.</p>
+    <p class="nota-tab">Apurado: parcela das seções já totalizadas. Projeção: resultado final estimado para Flávio. 1º turno: Flávio entre os votos dos dois. Variação: em pontos, na mesma medida.</p>
   </section>
 
   <section class="secao" id="sec-exterior">
@@ -357,6 +370,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       varridos continuamente, do primeiro ao último, e alimentam a projeção. O servidor do TSE renova cada arquivo a cada 30 segundos.</p>
     <p><strong>Modelo Mahlmeister.</strong> Quando estiver online para o 2º turno, a projeção de Rodrigo Mahlmeister, que compara cada
       seção com o seu local de votação em 2022, aparece ao lado como segunda leitura e pode comandar o pêndulo.</p>
+    <p id="nota-tecnica"></p>
     <p class="fontes"><span>Dados: <a href="https://resultados.tse.jus.br/" target="_blank" rel="noopener">resultados.tse.jus.br</a></span>
       <span>Modelo Mahlmeister: <a href="https://projecao.2026elections.workers.dev/" target="_blank" rel="noopener">projecao.2026elections.workers.dev</a></span></p>
   </footer>
@@ -689,7 +703,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     const ult = hist[hist.length - 1];
     const temProj = proj && proj.nCont > 0 && proj.lo != null;
     const m = ultimoMM();
-    const p = [t, Math.round(s.x * 100) / 100, Math.round(s.pF * 1000) / 1000, Math.round(s.pL * 1000) / 1000,
+    const p = [t, Math.round(s.pst * 100) / 100, Math.round(s.pF * 1000) / 1000, Math.round(s.pL * 1000) / 1000,
       temProj ? Math.round(proj.nac * 1000) / 1000 : null, temProj ? Math.round(proj.lo * 1000) / 1000 : null, temProj ? Math.round(proj.hi * 1000) / 1000 : null,
       m ? m.v : null, m ? m.lo : null, m ? m.hi : null];
     if (ult && ult[1] === p[1] && ult[2] === p[2] && ult[4] === p[4] && ult[7] === p[7]) return;
@@ -796,7 +810,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       const s = vivo.soma, m = ultimoMM();
       const propria = proj && proj.nCont > 0 && proj.lo != null ? { v: proj.nac, lo: proj.lo, hi: proj.hi } : null;
       const mmL = m && m.tipo === "projecao" ? { v: m.v, lo: m.lo, hi: m.hi } : null;
-      return { t: s && s.hora ? horaBrasilia(s.hora) : null, x: s ? s.x : 0, apF: s && s.vv > 0 ? s.pF : null, apL: s && s.vv > 0 ? s.pL : null, propria, mm: mmL, mmPre: m && m.tipo === "preliminar" ? m.v : null };
+      return { t: s && s.hora ? horaBrasilia(s.hora) : null, x: s ? s.pst : 0, apF: s && s.vv > 0 ? s.pF : null, apL: s && s.vv > 0 ? s.pL : null, propria, mm: mmL, mmPre: m && m.tipo === "preliminar" ? m.v : null };
     }
     const p = hist[st.i]; if (!p) return null;
     return { t: p[0], x: p[1], apF: p[2], apL: p[3], propria: p[4] != null ? { v: p[4], lo: p[5], hi: p[6] } : null, mm: p[7] != null && p[8] != null ? { v: p[7], lo: p[8], hi: p[9] } : null, mmPre: null, passado: true };
@@ -827,14 +841,14 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
 
     const leg = $("#legenda");
     const quem = st.usarMM && r && r.mm ? "modelo Mahlmeister" : "modelo por município";
-    if (principal) leg.innerHTML = `<strong>Flávio Bolsonaro</strong> · projeção do resultado final, em % dos votos válidos · ${quem}`;
+    if (principal) leg.innerHTML = `<strong>Projeção do resultado final</strong> · Lula <strong>${fmt(100 - principal.v)}%</strong> x Flávio <strong>${fmt(principal.v)}%</strong> · ${quem}`;
     else if (r && r.mmPre != null) leg.innerHTML = "<strong>Flávio Bolsonaro</strong> · projeção preliminar do modelo Mahlmeister, ainda sem faixa de incerteza";
     else if (r && r.apF != null) leg.innerHTML = "<strong>Flávio Bolsonaro</strong> · os primeiros municípios estão sendo lidos; a projeção aparece em instantes";
     else leg.innerHTML = "<strong>Flávio Bolsonaro</strong> · a projeção aparece com os primeiros votos apurados";
 
     const det = [];
     if (principal) det.push(`<span>${IC_FAIXA}faixa de ${st.usarMM && r.mm ? mm.nivel : 90}%: <b>${fmt(principal.lo)} a ${fmt(principal.hi)}</b></span>`);
-    if (r && r.apF != null) det.push(`<span>${IC_APURADO}apurado: <b>${fmt(r.apF)}%</b> com ${fmt(r.x)}% do eleitorado</span>`);
+    if (r && r.apF != null) det.push(`<span>${IC_APURADO}apurado: Flávio <b>${fmt(r.apF)}%</b> com ${fmt(r.x)}% das seções</span>`);
     if (secundaria) det.push(`<span>${IC_MODELO}${st.usarMM ? "modelo por município" : "modelo Mahlmeister"}: <b>${fmt(secundaria.v)}%</b> (${fmt(secundaria.lo, 1)} a ${fmt(secundaria.hi, 1)}${st.usarMM ? "" : `, faixa de ${mm.nivel}%`})</span>`);
     if (r && r.mm) det.push(`<span><button type="button" id="usar-mm" aria-pressed="${st.usarMM}">${st.usarMM ? "pêndulo no Mahlmeister" : "pêndulo no modelo próprio"}</button></span>`);
     if (MODO === "ensaio") det.push(`<span>${IC_FINAL}resultado final do 1º turno, só entre os dois: <b>${fmt(FINAL_ENSAIO)}%</b></span>`);
@@ -846,7 +860,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       ? `Projeção de Flávio Bolsonaro: ${fmt(principal.v, 2)}%, faixa de 90% de ${fmt(principal.lo)} a ${fmt(principal.hi)}.${r.apF != null ? ` Apurado: ${fmt(r.apF)}%.` : ""}`
       : "Pêndulo em oscilação máxima: ainda não há projeção.";
 
-    renderEstado(r); renderRegua(r);
+    renderEstado(r); renderRegua(r); renderTopo();
   }
 
   function renderEstado(r) {
@@ -868,23 +882,35 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     if (st.vivo) {
       partes.unshift('<span class="ponto-vivo" aria-hidden="true"></span><span>Ao vivo</span>');
       if (s && s.hora) partes.push(`TSE às ${hora(horaBrasilia(s.hora))}`);
-      if (s && s.vv > 0) partes.push(`${fmt(s.x)}% do eleitorado`, `${fmt(s.pst)}% das seções`);
+      if (s && s.vv > 0) partes.push(`<b>${fmt(s.pst)}% das seções apuradas</b>`);
       else if (s) partes.push(`a apuração começa em ${DATA_T2.slice(0, 5)}, às 17h`, "TSE conectado");
       else if (vivo.estado === "inicial") partes.push("conectando ao TSE");
       else partes.push("TSE sem resposta, nova tentativa em instantes");
-      if (varredura.ciclo > 0 || varredura.estado === "lendo") {
-        let lidos = 0; for (let i = 0; i < N; i++) lidos += M.lido[i];
-        partes.push(`municípios: ${fmtN(lidos)} de ${fmtN(N)} lidos${varredura.ciclo ? `, ciclo ${varredura.ciclo} em ${Math.round(varredura.duracao / 1000)} s` : ""}`);
-      }
-      if (proj && proj.ms > 0 && proj.nCont > 0) partes.push(`projeção com ${fmtN(proj.nCont)} municípios`);
-      if (mm.estado === "ok" && mm.pontos.length) partes.push(`Mahlmeister às ${hora(mm.pontos[mm.pontos.length - 1].t)}`);
-      else if (mm.estado === "teste") partes.push("Mahlmeister ainda em teste");
-      if (varredura.e403 > 0 && varredura.estado === "lendo") partes.push(`${varredura.e403} leituras a repetir`);
     } else if (r) {
       partes.unshift("Leitura anterior");
-      partes.push(`${DATA_T2.slice(0, 5)} às ${hora(r.t)}`, `${fmt(r.x)}% do eleitorado apurado`);
+      partes.push(`${DATA_T2.slice(0, 5)} às ${hora(r.t)}`, `${fmt(r.x)}% das seções apuradas`);
     }
     e.innerHTML = juntar(partes);
+    // nota técnica, no rodapé
+    const nt = [];
+    if (varredura.ciclo > 0 || varredura.estado === "lendo") {
+      let lidos = 0; for (let i = 0; i < N; i++) lidos += M.lido[i];
+      nt.push(`Municípios lidos: ${fmtN(lidos)} de ${fmtN(N)}${varredura.ciclo ? `, varredura ${varredura.ciclo} em ${Math.round(varredura.duracao / 1000)} s` : ""}${varredura.e403 > 0 && varredura.estado === "lendo" ? `, ${varredura.e403} leituras a repetir` : ""}.`);
+    }
+    if (proj && proj.nCont > 0) nt.push(`Projeção calculada com ${fmtN(proj.nCont)} municípios já apurados, ${fmt(proj.x, 1)}% do eleitorado.`);
+    if (s && s.vv > 0) nt.push(`Eleitorado em seções totalizadas: ${fmt(s.x)}%.`);
+    if (mm.estado === "ok" && mm.pontos.length) nt.push(`Modelo Mahlmeister lido às ${mm.pontos[mm.pontos.length - 1].t}.`);
+    else if (mm.estado === "teste") nt.push("Modelo Mahlmeister ainda em teste, sem dados do 2º turno.");
+    $("#nota-tecnica").textContent = nt.join(" ");
+  }
+  function renderTopo() {
+    const s = vivo.soma, el = $("#placar-topo");
+    if (!s) { el.innerHTML = `<p class="espera">Conectando ao TSE.</p>`; return; }
+    const prog = `<div class="progresso"><div class="progresso-t"><span>Seções apuradas${s.hora ? `, TSE às ${horaBrasilia(s.hora).replace(":", "h")}` : ""}</span><b>${fmt(s.pst)}%</b></div><div class="progresso-b"><span style="width:${Math.min(100, s.pst).toFixed(2)}%"></span></div></div>`;
+    if (!(s.vv > 0)) { el.innerHTML = prog + `<p class="espera">A apuração começa em ${DATA_T2.slice(0, 5)}, às 17h. Os números entram aqui sozinhos.</p>`; return; }
+    el.innerHTML = prog + `<div class="barra"><span class="l" style="width:${s.pL.toFixed(2)}%"></span><span class="f" style="width:${s.pF.toFixed(2)}%"></span><i class="meio"></i></div>
+      <div class="nomes"><span class="nl">Lula <b>${fmt(s.pL)}%</b></span><span class="nf"><b>${fmt(s.pF)}%</b> Flávio</span></div>
+      <div class="votos"><span>${fmtN(s.L)} votos</span><span>válidos ${fmtN(s.vv)} · ${fmtN(s.st)} de ${fmtN(s.ts)} seções</span><span>${fmtN(s.F)} votos</span></div>`;
   }
 
   // ------------------------------------------------------------------ régua
@@ -917,14 +943,14 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     const inp = $("#altura");
     let v = 0;
     if (hist.length) v = st.vivo ? hist[hist.length - 1][1] : hist[st.i][1];
-    else if (vivo.soma && vivo.soma.vv > 0) v = vivo.soma.x;
+    else if (vivo.soma && vivo.soma.vv > 0) v = vivo.soma.pst;
     if (document.activeElement !== inp) inp.value = String(v);
     inp.disabled = !hist.length;
     const rot = $("#rotulo-altura");
     rot.textContent = hist.length || (vivo.soma && vivo.soma.vv > 0) ? `${r && r.t ? r.t + " · " : ""}${fmt(v)}%` : "";
     const w = inp.getBoundingClientRect().width, px = 7.5 + ((w - 15) * Number(inp.value || 0)) / 100, meia = rot.getBoundingClientRect().width / 2;
     rot.style.left = `${limitar(px, meia, w - meia)}px`;
-    inp.setAttribute("aria-valuetext", `${fmt(v)}% do eleitorado apurado${r && r.t ? ", " + r.t : ""}`);
+    inp.setAttribute("aria-valuetext", `${fmt(v)}% das seções apuradas${r && r.t ? ", " + r.t : ""}`);
   }
 
   // ------------------------------------------------------------------ apuração: totalizador, mapa, tabelas
@@ -935,7 +961,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     const u = vivo.uf[sigla.toLowerCase()], b = T1UF[sigla];
     const ap = !!u && u.F + u.L > 0;
     const tem = !!u;
-    const x = tem && u.te > 0 ? (100 * u.est) / u.te : 0;
+    const x = tem && u.ts > 0 ? (100 * u.st) / u.ts : 0;
     const F2 = ap ? (100 * u.F) / (u.F + u.L) : null, L2 = ap ? (100 * u.L) / (u.F + u.L) : null;
     const F1 = dois(b.F, b.L), F1raw = (100 * b.F) / b.vv, L1raw = (100 * b.L) / b.vv;
     const pr = proj && proj.nCont > 0 ? proj.uf[sigla] : null;
@@ -947,7 +973,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   function renderPlacar() {
     const s = vivo.soma, b = T1BR;
     const prog = $("#progresso");
-    if (s) prog.innerHTML = `<div class="progresso-t"><span>Eleitorado em seções totalizadas${s.hora ? `, TSE às ${horaBrasilia(s.hora)}` : ""}</span><b>${fmt(s.x)}%</b></div><div class="progresso-b"><span style="width:${Math.min(100, s.x).toFixed(2)}%"></span></div><div class="progresso-t"><span>Seções totalizadas: ${fmtN(s.st)} de ${fmtN(s.ts)}</span><b>${fmt(s.pst)}%</b></div>`;
+    if (s) prog.innerHTML = `<div class="progresso-t"><span>Seções apuradas: ${fmtN(s.st)} de ${fmtN(s.ts)}${s.hora ? `, TSE às ${horaBrasilia(s.hora).replace(":", "h")}` : ""}</span><b>${fmt(s.pst)}%</b></div><div class="progresso-b"><span style="width:${Math.min(100, s.pst).toFixed(2)}%"></span></div>`;
     else prog.innerHTML = `<div class="progresso-t"><span>Aguardando o TSE</span></div>`;
     const F1 = dois(b.F, b.L), L1 = 100 - F1;
     const F1raw = (100 * b.F) / b.vv, L1raw = (100 * b.L) / b.vv, O1 = 100 - F1raw - L1raw;
@@ -957,7 +983,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     let h = "";
     if (s && s.vv > 0) {
       const pr = proj && proj.nCont > 0 && proj.lo != null ? proj : null;
-      h += linha("2º turno", `apurado, ${fmt(s.x)}% do eleitorado`, s.pL, s.pF, 0,
+      h += linha("2º turno", `apurado, ${fmt(s.pst)}% das seções`, s.pL, s.pF, 0,
         `<span class="nl grande">Lula <b>${fmt(s.pL)}%</b></span><span class="nf grande">Flávio <b>${fmt(s.pF)}%</b></span>`,
         `<span>Lula ${fmtN(s.L)} votos</span><span>válidos ${fmtN(s.vv)}</span><span>Flávio ${fmtN(s.F)} votos</span>`);
       if (pr) h += linha("Projeção", "resultado final estimado", 100 - pr.nac, pr.nac, 0,
@@ -1025,7 +1051,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       <div class="info-linha"><span class="k">2º turno</span>${d.ap ? `<span class="nl">Lula <b>${fmt(d.L2)}%</b></span><span class="nf">Flávio <b>${fmt(d.F2)}%</b></span>` : `<span class="k">sem votos apurados</span><span></span>`}</div>
       <div class="info-linha"><span class="k">projeção</span>${d.pr != null && d.ap ? `<span class="nl">Lula <b>${fmt(100 - d.pr)}%</b></span><span class="nf">Flávio <b>${fmt(d.pr)}%</b></span>` : `<span class="k">aguardando</span><span></span>`}</div>
       <div class="info-linha"><span class="k">1º turno</span><span class="nl">Lula <b>${fmt(100 - d.F1)}%</b></span><span class="nf">Flávio <b>${fmt(d.F1)}%</b></span></div>
-      <div class="info-linha"><span class="k">apurado</span><span><b>${fmt(d.x, 1)}%</b> do eleitorado</span><span>${d.u ? `${fmtN(d.u.st)} de ${fmtN(d.u.ts)} seções` : ""}</span></div>
+      <div class="info-linha"><span class="k">apurado</span><span><b>${fmt(d.x, 1)}%</b> das seções</span><span>${d.u ? `${fmtN(d.u.st)} de ${fmtN(d.u.ts)}` : ""}</span></div>
       <div class="mut">${d.varr != null ? `Variação de ${d.varr > 0 ? "Flávio" : "Lula"} ${fmt(Math.abs(d.varr))} p.p. em relação ao 1º turno, só entre os dois.` : "Eleitorado de " + fmtN(d.te) + " pessoas."}</div>`;
   }
 

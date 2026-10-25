@@ -391,7 +391,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   const UFS = "ac al ap am ba ce df es go ma mt ms mg pa pb pr pe pi rj rn rs ro rr sc sp se to zz".split(" ");
   const HORAS_ATRAS = { ac: 2, am: 1, ro: 1, rr: 1, mt: 1, ms: 1 };
   const INTERVALO_UF = 10000, INTERVALO_MODELO = 60000, CICLO_MIN = 25000;
-  let CONCORRENCIA = 24, RITMO = 120;          // leituras simultâneas e pedidos por segundo na varredura dos municípios
+  let CONCORRENCIA = 16, RITMO = 60;          // leituras simultâneas e pedidos por segundo na varredura dos municípios
   const DATA_T2 = MODO === "ensaio" ? BASE.dataT1 : BASE.dataT2;
   const FINAL_ENSAIO = (() => { let F = 0, L = 0; for (const u in BASE.uf) { F += BASE.uf[u][6]; L += BASE.uf[u][7]; } return (100 * F) / (F + L); })();
 
@@ -442,7 +442,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   // ------------------------------------------------------------------ estado
   const st = { vivo: true, i: 0, usarMM: false, mapaModo: "ap", ufSel: null, ordemUF: "eleitores", todosPaises: false };
   const vivo = { uf: {}, soma: null, hora: null, estado: "inicial", ultima: 0, limite: false, falhas: 0 };
-  const varredura = { ciclo: 0, lidos: 0, pendentes: 0, inicio: 0, duracao: 0, estado: "parado", erros: 0, e403: 0, limiteAte: 0, stUltima: -1 };
+  const varredura = { ciclo: 0, lidos: 0, pendentes: 0, inicio: 0, duracao: 0, estado: "parado", erros: 0, e403: 0, e429: 0, limiteAte: 0, stUltima: -1, pausaAte: 0 };
   const mm = { estado: "inicial", pontos: [], ambiente: null, atualizado: null, nivel: 90, eleicao: "" };
   let proj = null;          // última projeção do modelo próprio
   const hist = [];          // leituras: [t, x, apF, apL, projF, lo, hi, mmF, mmLo, mmHi]
@@ -557,10 +557,12 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       await new Promise((r) => setTimeout(r, Math.ceil(((1 - fichas) / RITMO) * 1000)));
     }
   }
+  const tentativas = new Map();
   async function lane() {
     while (posFila < fila.length) {
       const i = fila[posFila++];
       if (MODO !== "simulado") await ficha();
+      if (Date.now() < varredura.pausaAte) await new Promise((r) => setTimeout(r, varredura.pausaAte - Date.now()));
       try {
         const d = lerCampos(await baixar(urlMun(i)));
         if (!M.lido[i] || d.idg >= M.idg[i]) {
@@ -570,8 +572,13 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
         varredura.lidos++;
       } catch (e) {
         varredura.erros++;
-        if (e && e.limite) { vivo.limite = true; varredura.limiteAte = Date.now() + 120000; RITMO = 30; posFila = fila.length; pausaVarredura = 30000; }
-        else if (e && e.transitorio) { varredura.e403++; }
+        const t = (tentativas.get(i) || 0) + 1; tentativas.set(i, t);
+        if (e && e.limite) {
+          // 429: reduz o ritmo, espera alguns segundos e devolve o município ao fim da fila (até 3 vezes por varredura)
+          vivo.limite = true; varredura.limiteAte = Date.now() + 120000; varredura.e429++;
+          RITMO = Math.max(15, Math.floor(RITMO / 2)); varredura.pausaAte = Date.now() + 2500 + Math.random() * 2500;
+          if (t <= 3) fila.push(i);
+        } else if (e && e.transitorio) { varredura.e403++; if (t <= 2) fila.push(i); }
         else if (e instanceof TypeError && varredura.erros > 40 && varredura.lidos === 0) { posFila = fila.length; pausaVarredura = 60000; }
       }
     }
@@ -585,8 +592,8 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       if (MODO === "vivo" && vivo.soma && vivo.soma.st === varredura.stUltima && Date.now() - varredura.inicio < 300000) { varredura.estado = "esperando"; await new Promise((r) => setTimeout(r, 10000)); continue; }
       varredura.stUltima = vivo.soma ? vivo.soma.st : -1;
       montarFila();
-      varredura.inicio = Date.now(); varredura.lidos = 0; varredura.erros = 0; varredura.e403 = 0; varredura.estado = "lendo";
-      if (Date.now() > varredura.limiteAte) { RITMO = Math.min(120, RITMO + 30); if (vivo.limite && Date.now() > varredura.limiteAte) vivo.limite = false; }
+      varredura.inicio = Date.now(); varredura.lidos = 0; varredura.erros = 0; varredura.e403 = 0; varredura.e429 = 0; varredura.estado = "lendo"; tentativas.clear();
+      if (Date.now() > varredura.limiteAte) { RITMO = Math.min(90, RITMO + 15); if (vivo.limite && Date.now() > varredura.limiteAte) vivo.limite = false; }
       const n = Math.min(CONCORRENCIA, fila.length);
       await Promise.all(Array.from({ length: n }, lane));
       varredura.duracao = Date.now() - varredura.inicio;
@@ -642,17 +649,40 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
         w[i] = 1 / (sig[i] * sig[i] + vobs[i]); Sw += w[i];
       }
     }
+    // resto por UF: votos que o arquivo da UF já soma, mas que a varredura ainda não atribuiu a municípios
+    const rF = new Float64Array(NU), rL = new Float64Array(NU), rEst = new Float64Array(NU), rQ = new Float64Array(NU), rS = new Float64Array(NU), rW = new Float64Array(NU);
+    const cF = new Float64Array(NU), cL = new Float64Array(NU), cEst = new Float64Array(NU), qF = new Float64Array(NU), qV = new Float64Array(NU), faltaEst = new Float64Array(NU);
+    for (let i = 0; i < N; i++) {
+      const j = uIdx[i]; cF[j] += M.F2[i]; cL[j] += M.L2[i]; cEst[j] += M.est2[i];
+      const fe = Math.max(totTe[i] - M.est2[i], 0); faltaEst[j] += fe;
+      const wq = M.te1[i] > 0 ? fe / M.te1[i] : 0; qF[j] += M.F1[i] * wq; qV[j] += (M.F1[i] + M.L1[i]) * wq;
+    }
+    let nResto = 0;
+    for (let j = 0; j < NU; j++) {
+      const u = vivo.uf[UFL[j].toLowerCase()];
+      if (!u || !(u.F + u.L > 0)) continue;
+      rF[j] = Math.max(u.F - cF[j], 0); rL[j] = Math.max(u.L - cL[j], 0); rEst[j] = Math.min(Math.max(u.est - cEst[j], 0), faltaEst[j]);
+      const v = rF[j] + rL[j];
+      if (v < 50 || qV[j] <= 0) { rF[j] = rL[j] = rEst[j] = 0; continue; }
+      rQ[j] = logit(qF[j] / qV[j]);                       // 1º turno dos municípios que ainda não terminaram, pesados pelo que falta
+      rS[j] = logit(rF[j] / v) - rQ[j];
+      rW[j] = 1 / (0.06 * 0.06 + 4 / v); nResto++;          // composição desconhecida: evidência mais fraca que a de um município
+    }
     let delta = 0; const uEff = new Float64Array(NU), den = new Float64Array(NU), num = new Float64Array(NU);
     let varDelta = 0.1 * 0.1;
-    if (nCont > 0) {
+    if (nCont > 0 || nResto > 0) {
+      let SwT = Sw; for (let j = 0; j < NU; j++) SwT += rW[j];
       for (let it = 0; it < 3; it++) {
         let Swr = 0;
         for (let i = 0; i < N; i++) if (cont[i]) Swr += w[i] * (sObs[i] - uEff[uIdx[i]]);
-        delta = Swr / Sw;
+        for (let j = 0; j < NU; j++) if (rW[j]) Swr += rW[j] * (rS[j] - uEff[j]);
+        delta = Swr / SwT;
         num.fill(0); den.fill(0);
         for (let i = 0; i < N; i++) if (cont[i]) { num[uIdx[i]] += w[i] * (sObs[i] - delta); den[uIdx[i]] += w[i]; }
+        for (let j = 0; j < NU; j++) if (rW[j]) { num[j] += rW[j] * (rS[j] - delta); den[j] += rW[j]; }
         for (let j = 0; j < NU; j++) uEff[j] = num[j] / (den[j] + 1 / (TAU_UF * TAU_UF));
       }
+      Sw = SwT;
       let eb = 0, tb = 0;
       for (let i = 0; i < N; i++) if (M.te1[i] > 2e5) { eb += M.est2[i]; tb += totTe[i]; }
       const kbig = tb > 0 ? eb / tb : 1;
@@ -666,27 +696,30 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     // posterior do swing final de cada município e projeção
     const sPost = new Float64Array(N), varPost = new Float64Array(N), Vtot = new Float64Array(N), loSh = new Float64Array(N), hiSh = new Float64Array(N);
     let Fsum = 0, Vsum = 0; const Fu = new Float64Array(NU), Vu = new Float64Array(NU);
+    const encolhe = new Float64Array(NU).fill(1);
+    for (let j = 0; j < NU; j++) { if (rF[j] + rL[j] > 0 && faltaEst[j] > 0) encolhe[j] = Math.max(0, 1 - rEst[j] / faltaEst[j]); Fu[j] += rF[j]; Vu[j] += rF[j] + rL[j]; Fsum += rF[j]; Vsum += rF[j] + rL[j]; }
     for (let i = 0; i < N; i++) {
       const pred = delta + uEff[uIdx[i]];
       const pp = 1 / (sig[i] * sig[i]) + (cont[i] ? 1 / vobs[i] : 0);
       sPost[i] = cont[i] ? (sObs[i] / vobs[i] + pred / (sig[i] * sig[i])) / pp : pred;
       varPost[i] = 1 / pp;
-      const falta = Math.max(totTe[i] - M.est2[i], 0) * ((M.F1[i] + M.L1[i]) / Math.max(M.te1[i], 1)) * adj[uIdx[i]];
+      const falta = Math.max(totTe[i] - M.est2[i], 0) * encolhe[uIdx[i]] * ((M.F1[i] + M.L1[i]) / Math.max(M.te1[i], 1)) * adj[uIdx[i]];
       Vtot[i] = M.F2[i] + M.L2[i] + falta;
       loSh[i] = Vtot[i] > 0 ? M.F2[i] / Vtot[i] : 0; hiSh[i] = Vtot[i] > 0 ? (M.F2[i] + falta) / Vtot[i] : 1;
       const sh = limitar(expit(M.q1[i] + sPost[i]), loSh[i], hiSh[i]);
       M.share[i] = sh;
       Fsum += Vtot[i] * sh; Vsum += Vtot[i]; Fu[uIdx[i]] += Vtot[i] * sh; Vu[uIdx[i]] += Vtot[i];
     }
-    const out = { nac: (100 * Fsum) / Vsum, delta, nCont, uf: {}, lo: null, hi: null };
+    const out = { nac: (100 * Fsum) / Vsum, delta, nCont, nResto, uf: {}, lo: null, hi: null };
     for (let j = 0; j < NU; j++) out.uf[UFL[j]] = Vu[j] ? (100 * Fu[j]) / Vu[j] : null;
-    if (nCont > 0) {
+    if (nCont > 0 || nResto > 0) {
       const vals = new Float64Array(BOOT);
       const sdDelta = Math.sqrt(varDelta), sdU = Float64Array.from(varU, Math.sqrt), sdP = Float64Array.from(varPost, Math.sqrt);
       const basePost = new Float64Array(N); for (let i = 0; i < N; i++) basePost[i] = M.q1[i] + sPost[i];
       for (let b = 0; b < BOOT; b++) {
         const d = RUIDO_D[b] * sdDelta; const ue = new Float64Array(NU); for (let j = 0; j < NU; j++) ue[j] = d + RUIDO_U[b * NU + j] * sdU[j];
         let F = 0; const off = b * N;
+        for (let j = 0; j < NU; j++) F += rF[j];
         for (let i = 0; i < N; i++) {
           const sh = limitar(expit(basePost[i] + ue[uIdx[i]] + RUIDO[off + i] * sdP[i]), loSh[i], hiSh[i]);
           F += Vtot[i] * sh;
@@ -698,13 +731,15 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     return out;
   }
 
+  let stModelo = -1;
   function atualizarModelo() {
-    if (munVersao !== munVersaoModelo) {
-      munVersaoModelo = munVersao;
+    const stAgora = vivo.soma ? vivo.soma.st : -1;
+    if (munVersao !== munVersaoModelo || stAgora !== stModelo) {
+      munVersaoModelo = munVersao; stModelo = stAgora;
       const t0 = performance.now();
       let lidos = 0; for (let i = 0; i < N; i++) lidos += M.lido[i];
       let estSum = 0, teSum = 0; for (let i = 0; i < N; i++) { estSum += M.est2[i]; teSum += M.te2[i] > 0 ? M.te2[i] : M.te1[i]; }
-      const p = lidos ? projetar() : null;
+      const p = lidos || (vivo.soma && vivo.soma.F + vivo.soma.L > 0) ? projetar() : null;
       proj = p ? Object.assign(p, { x: (100 * estSum) / teSum, hora: Date.now(), ms: performance.now() - t0 }) : null;
     }
     registrar();
@@ -918,7 +953,8 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       let lidos = 0; for (let i = 0; i < N; i++) lidos += M.lido[i];
       nt.push(`Municípios lidos: ${fmtN(lidos)} de ${fmtN(N)}${varredura.ciclo ? `, varredura ${varredura.ciclo} em ${Math.round(varredura.duracao / 1000)} s` : ""}${varredura.e403 > 0 && varredura.estado === "lendo" ? `, ${varredura.e403} leituras a repetir` : ""}.`);
     }
-    if (proj && proj.nCont > 0) nt.push(`Projeção calculada com ${fmtN(proj.nCont)} municípios já apurados, ${fmt(proj.x, 1)}% do eleitorado.`);
+    if (proj && (proj.nCont > 0 || proj.nResto > 0)) nt.push(`Projeção calculada com ${fmtN(proj.nCont)} municípios já lidos (${fmt(proj.x, 1)}% do eleitorado)${proj.nResto ? ` e com os votos ainda não atribuídos a municípios em ${proj.nResto} estados` : ""}.`);
+    if (varredura.e429 > 0) nt.push(`O TSE limitou ${fmtN(varredura.e429)} leituras nesta varredura; elas são repetidas em ritmo menor.`);
     if (s && s.vv > 0) nt.push(`Eleitorado em seções totalizadas: ${fmt(s.x)}%.`);
     if (mm.estado === "ok" && mm.pontos.length) nt.push(`Modelo Mahlmeister lido às ${mm.pontos[mm.pontos.length - 1].t}.`);
     else if (mm.estado === "teste") nt.push("Modelo Mahlmeister ainda em teste, sem dados do 2º turno.");

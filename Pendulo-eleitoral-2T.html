@@ -446,7 +446,8 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   const mm = { estado: "inicial", pontos: [], ambiente: null, atualizado: null, nivel: 90, eleicao: "" };
   let proj = null;          // última projeção do modelo próprio
   const hist = [];          // leituras: [t, x, apF, apL, projF, lo, hi, mmF, mmLo, mmHi]
-  const CHAVE_HIST = `pendulo2-hist-${MODO}-${ELE}`;
+  const CHAVE_HIST = `pendulo2-hist-${MODO}-${ELE}`, CHAVE_UF = `pendulo2-uf-${MODO}-${ELE}`;
+  if (MODO === "vivo") { try { const u = JSON.parse(localStorage.getItem(CHAVE_UF) || "null"); if (u && typeof u === "object") { for (const k of UFS) if (u[k] && typeof u[k].idg === "number") vivo.uf[k] = u[k]; } } catch (e) {} }
   try { const h = JSON.parse(localStorage.getItem(CHAVE_HIST) || "[]"); if (Array.isArray(h)) hist.push(...h.filter((p) => Array.isArray(p) && p.length >= 7)); } catch (e) {}
 
   // ------------------------------------------------------------------ leitura dos arquivos do TSE
@@ -523,6 +524,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     });
     vivo.ultima = Date.now();
     vivo.soma = somarUFs();
+    if (MODO === "vivo" && ok > 0) { try { localStorage.setItem(CHAVE_UF, JSON.stringify(vivo.uf)); } catch (e) {} }
     const bloqueado = ok === 0 && rede === UFS.length && !Object.keys(vivo.uf).length;
     vivo.estado = bloqueado ? "bloqueado" : ok === UFS.length ? "ok" : ok > 0 ? "parcial" : limite ? "limite" : "erro";
     vivo.limite = limite; vivo.falhas = UFS.length - ok;
@@ -901,7 +903,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       if (s && s.vv > 0) {
         partes.push(`<b>${fmt(s.pst)}% das seções apuradas</b>`);
         if (idade != null && idade >= 3 && s.pst < 100) partes.push(`sem números novos há ${idade} min`);
-      } else if (s) partes.push(`a apuração começa em ${DATA_T2.slice(0, 5)}, às 17h`, "TSE conectado");
+      } else if (s) partes.push(MODO === "vivo" && horaLocal() >= "17:00" ? "o TSE ainda não publicou votos nos arquivos dos estados" : `a apuração começa em ${DATA_T2.slice(0, 5)}, às 17h`, "TSE conectado");
       else if (vivo.estado === "inicial") partes.push("conectando ao TSE");
       else partes.push("TSE sem resposta, nova tentativa em instantes");
       if (vivo.falhas > 0 && s) partes.push(`TSE limitando consultas (${vivo.falhas} de ${UFS.length} arquivos sem resposta)`);
@@ -926,7 +928,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     const s = vivo.soma, el = $("#placar-topo");
     if (!s) { el.innerHTML = `<p class="espera">Conectando ao TSE.</p>`; return; }
     const prog = `<div class="progresso"><div class="progresso-t"><span>Seções apuradas${s.hora ? `, TSE às ${horaBrasilia(s.hora).replace(":", "h")}` : ""}</span><b>${fmt(s.pst)}%</b></div><div class="progresso-b"><span style="width:${Math.min(100, s.pst).toFixed(2)}%"></span></div></div>`;
-    if (!(s.vv > 0)) { el.innerHTML = prog + `<p class="espera">A apuração começa em ${DATA_T2.slice(0, 5)}, às 17h. Os números entram aqui sozinhos.</p>`; return; }
+    if (!(s.vv > 0)) { el.innerHTML = prog + `<p class="espera">${MODO === "vivo" && horaLocal() >= "17:00" ? "O TSE ainda não publicou votos nos arquivos dos estados, ou recolheu os que tinha publicado. A página consulta o servidor a cada 10 segundos e os números entram aqui sozinhos." : `A apuração começa em ${DATA_T2.slice(0, 5)}, às 17h. Os números entram aqui sozinhos.`}</p>`; return; }
     el.innerHTML = prog + `<div class="barra"><span class="l" style="width:${s.pL.toFixed(2)}%"></span><span class="f" style="width:${s.pF.toFixed(2)}%"></span><i class="meio"></i></div>
       <div class="nomes"><span class="nl">Lula <b>${fmt(s.pL)}%</b></span><span class="nf"><b>${fmt(s.pF)}%</b> Flávio</span></div>
       <div class="votos"><span>${fmtN(s.L)} votos</span><span>válidos ${fmtN(s.vv)} · ${fmtN(s.st)} de ${fmtN(s.ts)} seções</span><span>${fmtN(s.F)} votos</span></div>`;
@@ -1196,6 +1198,7 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   if (MODO === "ensaio") $("#marca-sub").textContent = "Eleições 2026 · Presidente · ensaio com o 1º turno";
   if (MODO === "simulado") $("#marca-sub").textContent = "Eleições 2026 · Presidente · simulação";
   desenharEscala(); construirMapa();
+  if (Object.keys(vivo.uf).length) vivo.soma = somarUFs();
   new ResizeObserver(() => { ajustarFontes(); renderRegua(leitura()); }).observe($("#pendulo"));
   render(); renderApuracao();
   requestAnimationFrame(quadro);

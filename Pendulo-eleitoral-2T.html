@@ -441,8 +441,8 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
 
   // ------------------------------------------------------------------ estado
   const st = { vivo: true, i: 0, usarMM: false, mapaModo: "ap", ufSel: null, ordemUF: "eleitores", todosPaises: false };
-  const vivo = { uf: {}, soma: null, hora: null, estado: "inicial", ultima: 0, limite: false };
-  const varredura = { ciclo: 0, lidos: 0, pendentes: 0, inicio: 0, duracao: 0, estado: "parado", erros: 0, e403: 0, limiteAte: 0 };
+  const vivo = { uf: {}, soma: null, hora: null, estado: "inicial", ultima: 0, limite: false, falhas: 0 };
+  const varredura = { ciclo: 0, lidos: 0, pendentes: 0, inicio: 0, duracao: 0, estado: "parado", erros: 0, e403: 0, limiteAte: 0, stUltima: -1 };
   const mm = { estado: "inicial", pontos: [], ambiente: null, atualizado: null, nivel: 90, eleicao: "" };
   let proj = null;          // última projeção do modelo próprio
   const hist = [];          // leituras: [t, x, apF, apL, projF, lo, hi, mmF, mmLo, mmHi]
@@ -502,8 +502,17 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
   async function buscarUFs() {
     if (buscandoUF) return;
     buscandoUF = true; clearTimeout(timerUF);
-    const ctl = new AbortController(); const tmo = setTimeout(() => ctl.abort(), 15000);
-    const res = await Promise.allSettled(UFS.map((u) => baixar(urlUF(u), ctl.signal)));
+    const ctl = new AbortController(); const tmo = setTimeout(() => ctl.abort(), 20000);
+    // 6 leituras por vez, repetindo uma vez quem recebeu 429 (o TSE limita rajadas na noite da apuração)
+    const res = new Array(UFS.length); let prox = 0;
+    const lerUma = async (u) => {
+      try { return { status: "fulfilled", value: await baixar(urlUF(u), ctl.signal) }; }
+      catch (e) {
+        if (e && (e.limite || e.transitorio)) { await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800)); try { return { status: "fulfilled", value: await baixar(urlUF(u), ctl.signal) }; } catch (e2) { return { status: "rejected", reason: e2 }; } }
+        return { status: "rejected", reason: e };
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, async () => { while (prox < UFS.length) { const i = prox++; res[i] = await lerUma(UFS[i]); } }));
     clearTimeout(tmo);
     let ok = 0, rede = 0, limite = false;
     res.forEach((r, i) => {
@@ -516,12 +525,12 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     vivo.soma = somarUFs();
     const bloqueado = ok === 0 && rede === UFS.length && !Object.keys(vivo.uf).length;
     vivo.estado = bloqueado ? "bloqueado" : ok === UFS.length ? "ok" : ok > 0 ? "parcial" : limite ? "limite" : "erro";
-    vivo.limite = limite;
+    vivo.limite = limite; vivo.falhas = UFS.length - ok;
     buscandoUF = false;
     atualizarModelo();
     render(); renderApuracao();
     const antes = MODO === "vivo" && !(vivo.soma && vivo.soma.est > 0) && horaLocal() < "16:55";
-    timerUF = setTimeout(buscarUFs, vivo.estado === "limite" ? 60000 : vivo.estado === "bloqueado" ? 60000 : antes ? 30000 : INTERVALO_UF);
+    timerUF = setTimeout(buscarUFs, vivo.estado === "bloqueado" ? 60000 : vivo.estado === "limite" || vivo.estado === "erro" ? 20000 : antes ? 30000 : INTERVALO_UF);
   }
 
   // ------------------------------------------------------------------ varredura dos municípios
@@ -570,6 +579,9 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     varrendo = true;
     while (true) {
       if (MODO === "vivo" && !(vivo.soma && vivo.soma.est > 0)) { varredura.estado = "esperando"; await new Promise((r) => setTimeout(r, 15000)); continue; }
+      // sem movimento nos arquivos de UF, não há o que varrer: espera (e revisa a cada 5 minutos)
+      if (MODO === "vivo" && vivo.soma && vivo.soma.st === varredura.stUltima && Date.now() - varredura.inicio < 300000) { varredura.estado = "esperando"; await new Promise((r) => setTimeout(r, 10000)); continue; }
+      varredura.stUltima = vivo.soma ? vivo.soma.st : -1;
       montarFila();
       varredura.inicio = Date.now(); varredura.lidos = 0; varredura.erros = 0; varredura.e403 = 0; varredura.estado = "lendo";
       if (Date.now() > varredura.limiteAte) { RITMO = Math.min(120, RITMO + 30); if (vivo.limite && Date.now() > varredura.limiteAte) vivo.limite = false; }
@@ -872,8 +884,12 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
       av.textContent = emClaude
         ? "O ao vivo não funciona dentro do claude.ai, que bloqueia conexões com outros sites. Abra o arquivo .html do Pêndulo eleitoral no navegador."
         : "Sem conexão com o TSE. Se esta página está aberta dentro do claude.ai, abra o arquivo .html no navegador; fora dele, verifique a internet. Nova tentativa em 1 minuto.";
-    } else if (vivo.limite) {
-      av.hidden = false; av.textContent = "O TSE limitou as consultas deste computador. A leitura continua em ritmo menor por um minuto.";
+    }
+    const s0 = vivo.soma;
+    const idade = MODO === "vivo" && s0 && s0.hora ? Math.round((Date.now() - s0.hora) / 60000) : null;
+    if (av.hidden && idade != null && idade >= 10 && s0.vv > 0 && s0.pst < 100) {
+      av.hidden = false;
+      av.textContent = `O TSE está sem publicar números novos desde as ${horaBrasilia(s0.hora).replace(":", "h")}, há ${idade} minutos. A página continua consultando os arquivos a cada 10 segundos e atualiza sozinha quando a divulgação voltar.`;
     }
     const partes = [];
     if (MODO === "ensaio") partes.push("Ensaio com os arquivos do 1º turno");
@@ -882,10 +898,13 @@ table.dados tr.lider-l td.e::before { background: var(--lula); } table.dados tr.
     if (st.vivo) {
       partes.unshift('<span class="ponto-vivo" aria-hidden="true"></span><span>Ao vivo</span>');
       if (s && s.hora) partes.push(`TSE às ${hora(horaBrasilia(s.hora))}`);
-      if (s && s.vv > 0) partes.push(`<b>${fmt(s.pst)}% das seções apuradas</b>`);
-      else if (s) partes.push(`a apuração começa em ${DATA_T2.slice(0, 5)}, às 17h`, "TSE conectado");
+      if (s && s.vv > 0) {
+        partes.push(`<b>${fmt(s.pst)}% das seções apuradas</b>`);
+        if (idade != null && idade >= 3 && s.pst < 100) partes.push(`sem números novos há ${idade} min`);
+      } else if (s) partes.push(`a apuração começa em ${DATA_T2.slice(0, 5)}, às 17h`, "TSE conectado");
       else if (vivo.estado === "inicial") partes.push("conectando ao TSE");
       else partes.push("TSE sem resposta, nova tentativa em instantes");
+      if (vivo.falhas > 0 && s) partes.push(`TSE limitando consultas (${vivo.falhas} de ${UFS.length} arquivos sem resposta)`);
     } else if (r) {
       partes.unshift("Leitura anterior");
       partes.push(`${DATA_T2.slice(0, 5)} às ${hora(r.t)}`, `${fmt(r.x)}% das seções apuradas`);
